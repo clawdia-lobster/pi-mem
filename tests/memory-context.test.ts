@@ -2,7 +2,6 @@ import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert";
 import * as fs from "node:fs";
 import { buildMemoryContext, ensureDirs, todayStr, yesterdayStr } from "../lib.ts";
-import * as path from "node:path";
 import { makeTempDir, cleanup, makeConfig, writeFile } from "./helpers.ts";
 
 let tmpDir: string;
@@ -128,57 +127,5 @@ describe("buildMemoryContext", () => {
 		const cIdx = result.indexOf("## C.md");
 		assert.ok(aIdx < bIdx);
 		assert.ok(bIdx < cIdx);
-	});
-
-	it("includes today's catchup INDEX.md", () => {
-		const config = makeConfig(tmpDir);
-		ensureDirs(config);
-		const today = todayStr();
-		const catchupDir = path.join(config.memoryDir, "catchup", today);
-		writeFile(`${catchupDir}/INDEX.md`, "<!-- file:1430_browse_hackernews.md -->\nBrowsed Hacker News");
-		const result = buildMemoryContext(config);
-		assert.ok(result.includes(`## Catchup: ${today} (today)`));
-		assert.ok(result.includes("Browsed Hacker News"));
-	});
-
-	it("includes yesterday's catchup INDEX.md", () => {
-		const config = makeConfig(tmpDir);
-		ensureDirs(config);
-		const yesterday = yesterdayStr();
-		const catchupDir = path.join(config.memoryDir, "catchup", yesterday);
-		writeFile(`${catchupDir}/INDEX.md`, "<!-- file:0900_chat_summary.md -->\nTeam standup summary");
-		const result = buildMemoryContext(config);
-		assert.ok(result.includes(`## Catchup: ${yesterday} (yesterday)`));
-		assert.ok(result.includes("Team standup summary"));
-	});
-
-	it("skips catchup INDEX.md when catchup dir does not exist", () => {
-		const config = makeConfig(tmpDir);
-		ensureDirs(config);
-		fs.writeFileSync(config.memoryFile, "Memory content", "utf-8");
-		const result = buildMemoryContext(config);
-		assert.ok(!result.includes("Catchup"));
-	});
-
-	it("skips empty catchup INDEX.md", () => {
-		const config = makeConfig(tmpDir);
-		ensureDirs(config);
-		const today = todayStr();
-		const catchupDir = path.join(config.memoryDir, "catchup", today);
-		writeFile(`${catchupDir}/INDEX.md`, "   \n  ");
-		const result = buildMemoryContext(config);
-		assert.ok(!result.includes("Catchup"));
-	});
-
-	it("places catchup sections after daily logs", () => {
-		const config = makeConfig(tmpDir);
-		ensureDirs(config);
-		const today = todayStr();
-		writeFile(`${config.dailyDir}/${today}.md`, "Today's log entry");
-		writeFile(path.join(config.memoryDir, "catchup", today, "INDEX.md"), "Catchup entry");
-		const result = buildMemoryContext(config);
-		const dailyIdx = result.indexOf("(today)");
-		const catchupIdx = result.indexOf("Catchup:");
-		assert.ok(dailyIdx < catchupIdx, "daily log should come before catchup");
 	});
 });

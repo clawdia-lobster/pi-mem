@@ -2,7 +2,6 @@ import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert";
 import * as fs from "node:fs";
 import { searchMemory, ensureDirs } from "../lib.ts";
-import * as path from "node:path";
 import { makeTempDir, cleanup, makeConfig, writeFile } from "./helpers.ts";
 
 let tmpDir: string;
@@ -123,52 +122,5 @@ describe("searchMemory", () => {
 		const result = searchMemory(config, "target");
 		assert.strictEqual(result.lineResults.length, 1);
 		assert.strictEqual(result.lineResults[0].file, "notes.md");
-	});
-
-	it("finds content in catchup subdirectories", () => {
-		const config = makeConfig(tmpDir);
-		ensureDirs(config);
-		const catchupDir = path.join(config.memoryDir, "catchup", "2026-04-20");
-		writeFile(`${catchupDir}/1430_browse_hackernews.md`, "---\nid: abc123\n---\nRead about new Rust async features");
-		const result = searchMemory(config, "rust async");
-		assert.strictEqual(result.lineResults.length, 1);
-		assert.strictEqual(result.lineResults[0].file, "catchup/2026-04-20/1430_browse_hackernews.md");
-	});
-
-	it("searches multiple catchup date directories", () => {
-		const config = makeConfig(tmpDir);
-		ensureDirs(config);
-		writeFile(path.join(config.memoryDir, "catchup", "2026-04-19", "note.md"), "target in yesterday");
-		writeFile(path.join(config.memoryDir, "catchup", "2026-04-20", "note.md"), "target in today");
-		const result = searchMemory(config, "target");
-		const catchupResults = result.lineResults.filter(r => r.file.startsWith("catchup/"));
-		assert.strictEqual(catchupResults.length, 2);
-	});
-
-	it("skips non-date catchup subdirectories", () => {
-		const config = makeConfig(tmpDir);
-		ensureDirs(config);
-		writeFile(path.join(config.memoryDir, "catchup", "not-a-date", "note.md"), "hidden target");
-		writeFile(path.join(config.memoryDir, "catchup", "2026-04-20", "note.md"), "visible target");
-		const result = searchMemory(config, "target");
-		const catchupResults = result.lineResults.filter(r => r.file.startsWith("catchup/"));
-		assert.strictEqual(catchupResults.length, 1);
-		assert.strictEqual(catchupResults[0].file, "catchup/2026-04-20/note.md");
-	});
-
-	it("handles missing catchup directory gracefully", () => {
-		const config = makeConfig(tmpDir);
-		ensureDirs(config);
-		// No catchup dir exists — should not throw
-		const result = searchMemory(config, "anything");
-		assert.strictEqual(result.lineResults.length, 0);
-	});
-
-	it("matches catchup filenames", () => {
-		const config = makeConfig(tmpDir);
-		ensureDirs(config);
-		writeFile(path.join(config.memoryDir, "catchup", "2026-04-20", "hackernews.md"), "some content");
-		const result = searchMemory(config, "hackernews");
-		assert.ok(result.fileMatches.includes("catchup/2026-04-20/hackernews.md"));
 	});
 });
