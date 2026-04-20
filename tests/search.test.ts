@@ -123,4 +123,61 @@ describe("searchMemory", () => {
 		assert.strictEqual(result.lineResults.length, 1);
 		assert.strictEqual(result.lineResults[0].file, "notes.md");
 	});
+
+	it("searches extra dirs configured via searchDirs (flat files)", () => {
+		const config = makeConfig(tmpDir, { searchDirs: ["catchup"] });
+		ensureDirs(config);
+		writeFile(`${config.memoryDir}/catchup/summary.md`, "target in catchup");
+		const result = searchMemory(config, "target");
+		assert.strictEqual(result.lineResults.length, 1);
+		assert.strictEqual(result.lineResults[0].file, "catchup/summary.md");
+	});
+
+	it("searches extra dirs with nested subdirectories", () => {
+		const config = makeConfig(tmpDir, { searchDirs: ["catchup"] });
+		ensureDirs(config);
+		writeFile(`${config.memoryDir}/catchup/2026-04-20/INDEX.md`, "morning briefing notes");
+		writeFile(`${config.memoryDir}/catchup/2026-04-19/INDEX.md`, "yesterday catchup");
+		const result = searchMemory(config, "briefing");
+		assert.strictEqual(result.lineResults.length, 1);
+		assert.strictEqual(result.lineResults[0].file, "catchup/2026-04-20/INDEX.md");
+	});
+
+	it("searches multiple extra dirs", () => {
+		const config = makeConfig(tmpDir, { searchDirs: ["catchup", "projects"] });
+		ensureDirs(config);
+		writeFile(`${config.memoryDir}/catchup/item.md`, "target in catchup");
+		writeFile(`${config.memoryDir}/projects/plan.md`, "target in projects");
+		const result = searchMemory(config, "target");
+		assert.strictEqual(result.lineResults.length, 2);
+		const files = result.lineResults.map(r => r.file);
+		assert.ok(files.includes("catchup/item.md"));
+		assert.ok(files.includes("projects/plan.md"));
+	});
+
+	it("ignores missing extra dirs gracefully", () => {
+		const config = makeConfig(tmpDir, { searchDirs: ["nonexistent"] });
+		ensureDirs(config);
+		fs.writeFileSync(config.memoryFile, "target in memory", "utf-8");
+		const result = searchMemory(config, "target");
+		assert.strictEqual(result.lineResults.length, 1);
+		assert.strictEqual(result.lineResults[0].file, "MEMORY.md");
+	});
+
+	it("respects maxResults across extra dirs", () => {
+		const config = makeConfig(tmpDir, { searchDirs: ["catchup"] });
+		ensureDirs(config);
+		const lines = Array.from({ length: 20 }, (_, i) => `match line ${i}`).join("\n");
+		writeFile(`${config.memoryDir}/catchup/big.md`, lines);
+		const result = searchMemory(config, "match", 5);
+		assert.strictEqual(result.lineResults.length, 5);
+	});
+
+	it("matches filenames in extra dirs", () => {
+		const config = makeConfig(tmpDir, { searchDirs: ["catchup"] });
+		ensureDirs(config);
+		writeFile(`${config.memoryDir}/catchup/2026-04-20/INDEX.md`, "some content");
+		const result = searchMemory(config, "INDEX");
+		assert.ok(result.fileMatches.includes("catchup/2026-04-20/INDEX.md"));
+	});
 });

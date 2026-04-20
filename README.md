@@ -53,6 +53,7 @@ Files in `notes/` and older daily logs are **not** injected — they're accessib
 | `PI_MEMORY_DIR` | `~/.pi/agent/memory/` | Root directory for all memory files |
 | `PI_DAILY_DIR` | `$PI_MEMORY_DIR/daily/` | Directory for daily logs |
 | `PI_CONTEXT_FILES` | *(empty)* | Comma-separated list of extra files to inject into context (e.g. `SOUL.md,AGENTS.md,HEARTBEAT.md`) |
+| `PI_SEARCH_DIRS` | *(empty)* | Comma-separated list of subdirectories (relative to `PI_MEMORY_DIR`) to include in `memory_search`. Searched recursively one level deep. (e.g. `catchup,projects`) |
 | `PI_AUTOCOMMIT` | `false` | When `1` or `true`, auto-commit to git after every write |
 
 ## Dashboard Widget

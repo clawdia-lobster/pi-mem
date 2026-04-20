@@ -64,6 +64,21 @@ describe("buildConfig", () => {
 		assert.strictEqual(config.autocommit, false);
 	});
 
+	it("parses PI_SEARCH_DIRS as comma-separated list", () => {
+		const config = buildConfig({ HOME: "/home/x", PI_SEARCH_DIRS: "catchup, projects" });
+		assert.deepStrictEqual(config.searchDirs, ["catchup", "projects"]);
+	});
+
+	it("defaults PI_SEARCH_DIRS to empty array", () => {
+		const config = buildConfig({ HOME: "/home/x" });
+		assert.deepStrictEqual(config.searchDirs, []);
+	});
+
+	it("handles PI_SEARCH_DIRS with extra whitespace and trailing comma", () => {
+		const config = buildConfig({ HOME: "/home/x", PI_SEARCH_DIRS: " catchup ,  projects , " });
+		assert.deepStrictEqual(config.searchDirs, ["catchup", "projects"]);
+	});
+
 	it("falls back to ~ when HOME is undefined", () => {
 		const config = buildConfig({});
 		assert.strictEqual(config.memoryDir, "~/.pi/agent/memory");

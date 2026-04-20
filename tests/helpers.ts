@@ -20,6 +20,7 @@ export function makeConfig(baseDir: string, overrides: Partial<MemoryConfig> = {
 		dailyDir: path.join(memoryDir, "daily"),
 		notesDir: path.join(memoryDir, "notes"),
 		contextFiles: [],
+		searchDirs: [],
 		autocommit: false,
 		...overrides,
 	};

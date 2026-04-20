@@ -17,6 +17,7 @@ export interface MemoryConfig {
 	dailyDir: string;
 	notesDir: string;
 	contextFiles: string[];
+	searchDirs: string[];
 	autocommit: boolean;
 }
 
@@ -24,6 +25,10 @@ export function buildConfig(env: Record<string, string | undefined> = process.en
 	const memoryDir = env.PI_MEMORY_DIR ?? path.join(env.HOME ?? "~", ".pi", "agent", "memory");
 	const dailyDir = env.PI_DAILY_DIR ?? path.join(memoryDir, "daily");
 	const contextFiles = (env.PI_CONTEXT_FILES ?? "")
+		.split(",")
+		.map(f => f.trim())
+		.filter(Boolean);
+	const searchDirs = (env.PI_SEARCH_DIRS ?? "")
 		.split(",")
 		.map(f => f.trim())
 		.filter(Boolean);
@@ -36,6 +41,7 @@ export function buildConfig(env: Record<string, string | undefined> = process.en
 		dailyDir,
 		notesDir: path.join(memoryDir, "notes"),
 		contextFiles,
+		searchDirs,
 		autocommit,
 	};
 }
@@ -291,6 +297,27 @@ export function searchMemory(config: MemoryConfig, query: string, maxResults: nu
 	searchDir(config.memoryDir, "");
 	searchDir(config.dailyDir, "daily");
 	searchDir(config.notesDir, "notes");
+
+	// Search extra dirs configured via PI_SEARCH_DIRS
+	for (const dirName of config.searchDirs) {
+		if (lineResults.length >= maxResults) break;
+		const dirPath = path.join(config.memoryDir, dirName);
+		try {
+			const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+			// Search .md files directly in the dir
+			const mdFiles = entries.filter(e => e.isFile() && e.name.endsWith(".md"));
+			for (const f of mdFiles) {
+				if (lineResults.length >= maxResults) break;
+				searchFile(path.join(dirPath, f.name), `${dirName}/${f.name}`);
+			}
+			// Search one level of subdirectories (e.g. catchup/2026-04-20/*.md)
+			const subDirs = entries.filter(e => e.isDirectory());
+			for (const sub of subDirs) {
+				if (lineResults.length >= maxResults) break;
+				searchDir(path.join(dirPath, sub.name), `${dirName}/${sub.name}`);
+			}
+		} catch {}
+	}
 
 	return { fileMatches, lineResults };
 }
