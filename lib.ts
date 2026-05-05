@@ -87,6 +87,13 @@ export function yesterdayStr(): string {
 	return d.toISOString().slice(0, 10);
 }
 
+/** Get a date string N days ago from today. */
+export function daysAgoStr(n: number): string {
+	const d = new Date();
+	d.setDate(d.getDate() - n);
+	return d.toISOString().slice(0, 10);
+}
+
 export function nowTimestamp(): string {
 	return new Date().toISOString().replace("T", " ").replace(/\.\d+Z$/, "");
 }
@@ -163,6 +170,39 @@ export function serializeScratchpad(items: ScratchpadItem[]): string {
 	return lines.join("\n") + "\n";
 }
 
+// --- Activity detection ---
+
+/** Minimum bytes in a daily log to count as "active" for that day. */
+const ACTIVITY_THRESHOLD_BYTES = 50;
+
+/** Number of trailing days to check for activity. */
+const ACTIVITY_LOOKBACK_DAYS = 3;
+
+/** Threshold: if fewer than this many of the lookback days have activity, user is "low activity". */
+const ACTIVITY_MIN_ACTIVE_DAYS = 1;
+
+/** Max catchup days to inject when in rollup mode. */
+const ROLLUP_CATCHUP_DAYS = 7;
+
+/** Normal catchup days (today + yesterday). */
+const NORMAL_CATCHUP_DAYS = 2;
+
+/**
+ * Detect low user activity by checking daily log sizes for the trailing N days.
+ * Returns true if the user has been inactive (daily logs mostly empty/missing).
+ */
+export function isLowActivity(config: MemoryConfig): boolean {
+	let activeDays = 0;
+	for (let i = 0; i < ACTIVITY_LOOKBACK_DAYS; i++) {
+		const date = daysAgoStr(i);
+		const content = readFileSafe(dailyPath(config.dailyDir, date));
+		if (content && content.trim().length >= ACTIVITY_THRESHOLD_BYTES) {
+			activeDays++;
+		}
+	}
+	return activeDays <= ACTIVITY_MIN_ACTIVE_DAYS;
+}
+
 // --- Memory context builder ---
 
 export function buildMemoryContext(config: MemoryConfig): string {
@@ -195,20 +235,33 @@ export function buildMemoryContext(config: MemoryConfig): string {
 		sections.push(`## Daily log: ${yesterday} (yesterday)\n\n${yesterdayContent.trim()}`);
 	}
 
-	// Auto-inject catchup INDEX.md for today and yesterday if they exist
+	// Auto-inject catchup INDEX.md — expand window when user has been inactive
 	const catchupDir = path.join(config.memoryDir, "catchup");
-	for (const [date, label] of [[today, "today"], [yesterday, "yesterday"]] as const) {
+	const lowActivity = isLowActivity(config);
+	const catchupDays = lowActivity ? ROLLUP_CATCHUP_DAYS : NORMAL_CATCHUP_DAYS;
+
+	// In rollup mode, use a smaller per-day cap to fit more days
+	const MAX_CATCHUP_BYTES_PER_DAY = lowActivity ? 1024 : 2048;
+	// Total catchup budget to prevent system prompt bloat
+	const MAX_CATCHUP_TOTAL_BYTES = 8192;
+	let catchupTotalBytes = 0;
+
+	// Collect catchup sections first, then prepend rollup header if any exist
+	const catchupSections: string[] = [];
+
+	for (let i = 0; i < catchupDays; i++) {
+		if (catchupTotalBytes >= MAX_CATCHUP_TOTAL_BYTES) break;
+		const date = daysAgoStr(i);
+		const label = i === 0 ? "today" : i === 1 ? "yesterday" : `${i} days ago`;
 		const indexPath = path.join(catchupDir, date, "INDEX.md");
 		let catchupContent = readFileSafe(indexPath)?.trim();
 		if (catchupContent) {
-			// Cap at ~2KB to prevent system prompt bloat on high-activity days
-			const MAX_CATCHUP_BYTES = 2048;
-			if (catchupContent.length > MAX_CATCHUP_BYTES) {
+			if (catchupContent.length > MAX_CATCHUP_BYTES_PER_DAY) {
 				const lines = catchupContent.split("\n");
 				let truncated = "";
 				let kept = 0;
 				for (const line of lines) {
-					if (truncated.length + line.length + 1 > MAX_CATCHUP_BYTES) break;
+					if (truncated.length + line.length + 1 > MAX_CATCHUP_BYTES_PER_DAY) break;
 					truncated += (kept > 0 ? "\n" : "") + line;
 					kept++;
 				}
@@ -220,8 +273,22 @@ export function buildMemoryContext(config: MemoryConfig): string {
 			}
 			const header = `## Catchup: ${date} (${label})`;
 			const hint = `_Read full details: memory_read(target='file', filename='catchup/${date}/FILENAME.md')_`;
-			sections.push(`${header}\n${hint}\n\n${catchupContent}`);
+			catchupSections.push(`${header}\n${hint}\n\n${catchupContent}`);
+			catchupTotalBytes += catchupContent.length;
 		}
+	}
+
+	// Only inject rollup mode header if there's actually catchup data to show
+	if (lowActivity && catchupSections.length > 0) {
+		sections.push(
+			"## \u26a1 Rollup Mode\n" +
+			`_Low activity detected over the last ${ACTIVITY_LOOKBACK_DAYS} days. ` +
+			`Catchup window expanded from ${NORMAL_CATCHUP_DAYS} to ${catchupDays} days._`
+		);
+	}
+
+	for (const s of catchupSections) {
+		sections.push(s);
 	}
 
 	if (sections.length === 0) {
