@@ -344,12 +344,15 @@ export default function (pi: ExtensionAPI) {
 		if (rebuildTimer) { clearInterval(rebuildTimer); rebuildTimer = null; }
 	});
 
-	pi.on("before_agent_start", async (event, _ctx) => {
+	// Inject memory as a trailing system message (not in the main system prompt).
+	// This keeps the system prompt byte-stable across sessions so that KV prefix
+	// caches (e.g., ds4 disk cache keyed on SHA1 of token prefix) get hits.
+	pi.on("context", async (event) => {
 		const memoryContext = buildMemoryContext(config);
 		if (!memoryContext) return;
 
 		const memoryInstructions = [
-			"\n\n## Memory",
+			"## Memory",
 			"The following memory files have been loaded. Use the memory_write tool to persist important information.",
 			"- Decisions, preferences, and durable facts \u2192 MEMORY.md",
 			"- Day-to-day notes and running context \u2192 daily/<YYYY-MM-DD>.md",
@@ -366,9 +369,8 @@ export default function (pi: ExtensionAPI) {
 			memoryContext,
 		].join("\n");
 
-		return {
-			systemPrompt: event.systemPrompt + memoryInstructions,
-		};
+		const messages = [...event.messages, { role: "system", content: memoryInstructions }];
+		return { messages };
 	});
 
 	pi.on("session_before_compact", async (_event, ctx) => {
