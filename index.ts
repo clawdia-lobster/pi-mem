@@ -694,7 +694,7 @@ export default function (pi: ExtensionAPI) {
 		label: "Memory Search",
 		description: [
 			"Search across all memory files (MEMORY.md, SCRATCHPAD.md, daily logs, notes/, and any other .md files).",
-			"Matches filenames and file contents. Case-insensitive keyword search.",
+			"Matches filenames and file contents. Case-insensitive substring search (not keyword/tokenized).",
 			"Returns matching files and lines with paths.",
 		].join("\n"),
 		parameters: Type.Object({
