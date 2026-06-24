@@ -431,15 +431,6 @@ export default function (pi: ExtensionAPI) {
 				} catch (e: any) {
 					if (!isExpectedError(e)) console.warn(`Cannot list daily dir: ${e.message}`);
 				}
-				try {
-					const catchupDir = path.join(config.memoryDir, "catchup");
-					const catchupDates = fs.readdirSync(catchupDir).filter(f => {
-						try { return fs.statSync(path.join(catchupDir, f)).isDirectory(); } catch { return false; }
-					}).sort().reverse();
-					if (catchupDates.length > 0) sections.push(`Catchup (${catchupDates.length} dates):\n${catchupDates.slice(0, 10).map(d => `- catchup/${d}/`).join("\n")}${catchupDates.length > 10 ? `\n  ... and ${catchupDates.length - 10} more` : ""}`);
-				} catch (e: any) {
-					if (!isExpectedError(e)) console.warn(`Cannot list catchup dir: ${e.message}`);
-				}
 				if (sections.length === 0) {
 					return { content: [{ type: "text", text: "Memory directory is empty." }], details: {} };
 				}
