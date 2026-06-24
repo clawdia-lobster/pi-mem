@@ -42,14 +42,22 @@ Identity and behavioral files (e.g. `SOUL.md`, `AGENTS.md`, `HEARTBEAT.md`) can 
 
 ## Context Injection
 
-The following are automatically injected into the system prompt before every agent turn:
+A memory snapshot is captured once at session start and injected identically into
+the system prompt on every turn. This keeps the prefix stable, preserving KV
+cache efficiency across the session. The snapshot includes:
 
 - Files listed in `PI_CONTEXT_FILES` (e.g. `SOUL.md,AGENTS.md,HEARTBEAT.md`)
 - `MEMORY.md`
-- `SCRATCHPAD.md` (open items only)
 - Today's and yesterday's daily logs
+- Today's and yesterday's catchup `INDEX.md` files (if present)
 
-Files in `notes/` and older daily logs are **not** injected — they're accessible on-demand via `memory_search` and `memory_read`.
+`SCRATCHPAD.md` is **not** auto-injected — use `memory_read(target='scratchpad')`
+or the `scratchpad` tool. Files in `notes/` and older daily logs are also not
+injected — access them on-demand via `memory_search` and `memory_read`.
+
+Writes via `memory_write` and `scratchpad` land on disk immediately but do **not**
+affect the current session's injected context. New sessions receive an updated
+snapshot. This prevents mid-session context drift that can confuse the model.        
 
 ## Configuration
 
@@ -82,11 +90,9 @@ Environment variables override `.pi-mem.json` values when set.
 
 ## Dashboard Widget
 
-An auto-generated "Last 24h" summary is shown on session start and switch:
-- Scans recent session files for titles, costs, and sub-agent counts
-- Groups by topic using an LLM call (falls back to flat list)
-- Rebuilt every 15 minutes in the background
-- Also shows open scratchpad items
+A scratchpad widget is shown on session start and switch. It reads
+`SCRATCHPAD.md` fresh on each render, so it always reflects the current open
+items. Collapsed state shows the count; expanded state lists the items.
 
 ## Related
 
