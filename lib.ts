@@ -5,8 +5,6 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { createReadStream } from "node:fs";
-import { createInterface } from "node:readline";
 
 // --- Config ---
 
@@ -30,17 +28,25 @@ export interface FileConfig {
 }
 
 export function loadConfigFile(memoryDir: string): FileConfig {
+	const configPath = path.join(memoryDir, ".pi-mem.json");
 	try {
-		const raw = fs.readFileSync(path.join(memoryDir, ".pi-mem.json"), "utf-8");
-		const parsed = JSON.parse(raw);
-		if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {};
-		const result: FileConfig = {};
-		if (typeof parsed.dailyDir === "string") result.dailyDir = parsed.dailyDir;
-		if (Array.isArray(parsed.contextFiles)) result.contextFiles = parsed.contextFiles.filter((s: unknown) => typeof s === "string");
-		if (Array.isArray(parsed.searchDirs)) result.searchDirs = parsed.searchDirs.filter((s: unknown) => typeof s === "string");
-		if (typeof parsed.autocommit === "boolean") result.autocommit = parsed.autocommit;
-		return result;
-	} catch {
+		const raw = fs.readFileSync(configPath, "utf-8");
+		try {
+			const parsed = JSON.parse(raw);
+			if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {};
+			const result: FileConfig = {};
+			if (typeof parsed.dailyDir === "string") result.dailyDir = parsed.dailyDir;
+			if (Array.isArray(parsed.contextFiles)) result.contextFiles = parsed.contextFiles.filter((s: unknown) => typeof s === "string");
+			if (Array.isArray(parsed.searchDirs)) result.searchDirs = parsed.searchDirs.filter((s: unknown) => typeof s === "string");
+			if (typeof parsed.autocommit === "boolean") result.autocommit = parsed.autocommit;
+			return result;
+		} catch (parseErr: any) {
+			console.warn(`Invalid JSON in ${configPath}: ${parseErr.message}`);
+			return {};
+		}
+	} catch (readErr: any) {
+		if (readErr.code === 'ENOENT') return {};
+		console.warn(`Cannot read ${configPath}: ${readErr.message}`);
 		return {};
 	}
 }
@@ -133,13 +139,23 @@ export function shortSessionId(sessionId: string): string {
 export function readFileSafe(filePath: string): string | null {
 	try {
 		return fs.readFileSync(filePath, "utf-8");
-	} catch {
+	} catch (e: any) {
+		if (e.code !== 'ENOENT' && e.code !== 'ENOTDIR') {
+			console.warn(`Cannot read ${filePath}: ${e.message}`);
+		}
 		return null;
 	}
 }
 
 export function dailyPath(dailyDir: string, date: string): string {
 	return path.join(dailyDir, `${date}.md`);
+}
+
+export function writeFileAtomic(filePath: string, data: string): void {
+	const dir = path.dirname(filePath);
+	const tmpPath = path.join(dir, `.tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+	fs.writeFileSync(tmpPath, data, "utf-8");
+	fs.renameSync(tmpPath, filePath);
 }
 
 /** Validate and normalize a relative file path within the memory directory. Returns null if path escapes memoryDir. */
@@ -174,7 +190,7 @@ function normalizeLookupText(value: string): string {
 
 function titleFromIndexLine(line: string): string {
 	const withoutFileComment = line.replace(/<!--\s*file:[^>]+-->/i, "").trim();
-	const parts = withoutFileComment.split(/\s+—\s+/);
+	const parts = withoutFileComment.split(/\s+\u2014\s+/);
 	const titlePart = parts[0] ?? withoutFileComment;
 	return titlePart
 		.replace(/^[\p{Emoji_Presentation}\p{Extended_Pictographic}\s]+/u, "")
@@ -323,8 +339,12 @@ export function parseScratchpad(content: string): ScratchpadItem[] {
 		const match = line.match(/^- \[([ xX])\] (.+)$/);
 		if (match) {
 			let meta = "";
-			if (i > 0 && lines[i - 1].match(/^<!--.*-->$/)) {
-				meta = lines[i - 1];
+			for (let j = i - 1; j >= Math.max(0, i - 3); j--) {
+				if (lines[j].match(/^- \[([ xX])\] /)) break;
+				if (lines[j].match(/^<!--.*-->$/)) {
+					meta = lines[j];
+					break;
+				}
 			}
 			items.push({
 				done: match[1].toLowerCase() === "x",
@@ -334,6 +354,31 @@ export function parseScratchpad(content: string): ScratchpadItem[] {
 		}
 	}
 	return items;
+}
+
+export function toggleScratchpadItem(content: string, search: string, action: 'done' | 'undo'): string {
+	const items = parseScratchpad(content);
+	const needle = search.toLowerCase();
+	const targetDone = action === 'done';
+
+	const matchIndices: number[] = [];
+	for (let i = 0; i < items.length; i++) {
+		if (items[i].done !== targetDone && items[i].text.toLowerCase().includes(needle)) {
+			matchIndices.push(i);
+		}
+	}
+
+	if (matchIndices.length === 0) {
+		throw new Error(`No matching ${targetDone ? "open" : "done"} item found for: "${search}"`);
+	}
+
+	if (matchIndices.length > 1) {
+		const matchTexts = matchIndices.map(i => `- ${items[i].done ? '[x]' : '[ ]'} ${items[i].text}`).join('\n');
+		throw new Error(`Ambiguous match: "${search}" matches ${matchIndices.length} items:\n${matchTexts}`);
+	}
+
+	items[matchIndices[0]].done = targetDone;
+	return serializeScratchpad(items);
 }
 
 export function serializeScratchpad(items: ScratchpadItem[]): string {
@@ -348,42 +393,9 @@ export function serializeScratchpad(items: ScratchpadItem[]): string {
 	return lines.join("\n") + "\n";
 }
 
-// --- Activity detection ---
+// --- Memory snapshot builder ---
 
-/** Minimum bytes in a daily log to count as "active" for that day. */
-const ACTIVITY_THRESHOLD_BYTES = 50;
-
-/** Number of trailing days to check for activity. */
-const ACTIVITY_LOOKBACK_DAYS = 3;
-
-/** Threshold: if fewer than this many of the lookback days have activity, user is "low activity". */
-const ACTIVITY_MIN_ACTIVE_DAYS = 1;
-
-/** Max catchup days to inject when in rollup mode. */
-const ROLLUP_CATCHUP_DAYS = 7;
-
-/** Normal catchup days (today + yesterday). */
-const NORMAL_CATCHUP_DAYS = 2;
-
-/**
- * Detect low user activity by checking daily log sizes for the trailing N days.
- * Returns true if the user has been inactive (daily logs mostly empty/missing).
- */
-export function isLowActivity(config: MemoryConfig): boolean {
-	let activeDays = 0;
-	for (let i = 0; i < ACTIVITY_LOOKBACK_DAYS; i++) {
-		const date = daysAgoStr(i, config.timezone);
-		const content = readFileSafe(dailyPath(config.dailyDir, date));
-		if (content && content.trim().length >= ACTIVITY_THRESHOLD_BYTES) {
-			activeDays++;
-		}
-	}
-	return activeDays <= ACTIVITY_MIN_ACTIVE_DAYS;
-}
-
-// --- Memory context builder ---
-
-export function buildMemoryContext(config: MemoryConfig): string {
+export function buildMemorySnapshot(config: MemoryConfig): string {
 	ensureDirs(config);
 	const sections: string[] = [];
 
@@ -413,159 +425,24 @@ export function buildMemoryContext(config: MemoryConfig): string {
 		sections.push(`## Daily log: ${yesterday} (yesterday)\n\n${yesterdayContent.trim()}`);
 	}
 
-	// Auto-inject catchup INDEX.md — expand window when user has been inactive
 	const catchupDir = path.join(config.memoryDir, "catchup");
-	const lowActivity = isLowActivity(config);
-	const catchupDays = lowActivity ? ROLLUP_CATCHUP_DAYS : NORMAL_CATCHUP_DAYS;
-
-	// In rollup mode, use a smaller per-day cap to fit more days
-	const MAX_CATCHUP_BYTES_PER_DAY = lowActivity ? 1024 : 2048;
-	// Total catchup budget to prevent system prompt bloat
-	const MAX_CATCHUP_TOTAL_BYTES = 8192;
-	let catchupTotalBytes = 0;
-
-	// Collect catchup sections first, then prepend rollup header if any exist
-	const catchupSections: string[] = [];
-
-	for (let i = 0; i < catchupDays; i++) {
-		if (catchupTotalBytes >= MAX_CATCHUP_TOTAL_BYTES) break;
+	for (let i = 0; i < 2; i++) {
 		const date = daysAgoStr(i, config.timezone);
-		const label = i === 0 ? "today" : i === 1 ? "yesterday" : `${i} days ago`;
+		const label = i === 0 ? "today" : "yesterday";
 		const indexPath = path.join(catchupDir, date, "INDEX.md");
-		let catchupContent = readFileSafe(indexPath)?.trim();
+		const catchupContent = readFileSafe(indexPath)?.trim();
 		if (catchupContent) {
-			if (catchupContent.length > MAX_CATCHUP_BYTES_PER_DAY) {
-				const lines = catchupContent.split("\n");
-				let truncated = "";
-				let kept = 0;
-				for (const line of lines) {
-					if (truncated.length + line.length + 1 > MAX_CATCHUP_BYTES_PER_DAY) break;
-					truncated += (kept > 0 ? "\n" : "") + line;
-					kept++;
-				}
-				const remaining = lines.length - kept;
-				if (remaining > 0) {
-					truncated += `\n... (${remaining} more entries — use memory_read(target='file', filename='catchup/${date}/INDEX.md') to see all)`;
-				}
-				catchupContent = truncated;
-			}
 			const header = `## Catchup: ${date} (${label})`;
 			const hint = `_Read full details: memory_read(target='file', filename='catchup/${date}/FILENAME.md')_`;
-			catchupSections.push(`${header}\n${hint}\n\n${catchupContent}`);
-			catchupTotalBytes += catchupContent.length;
+			sections.push(`${header}\n${hint}\n\n${catchupContent}`);
 		}
-	}
-
-	// Only inject rollup mode header if there's actually catchup data to show
-	if (lowActivity && catchupSections.length > 0) {
-		sections.push(
-			"## \u26a1 Rollup Mode\n" +
-			`_Low activity detected over the last ${ACTIVITY_LOOKBACK_DAYS} days. ` +
-			`Catchup window expanded from ${NORMAL_CATCHUP_DAYS} to ${catchupDays} days._`
-		);
-	}
-
-	for (const s of catchupSections) {
-		sections.push(s);
 	}
 
 	if (sections.length === 0) {
 		return "";
 	}
 
-	return `# Memory\n\n${sections.join("\n\n---\n\n")}`;
-}
-
-// --- Session scanner ---
-
-const LOOKBACK_MS = 24 * 60 * 60 * 1000;
-
-export interface SessionInfo {
-	file: string;
-	timestamp: string;
-	title: string;
-	isChild: boolean;
-	parentSession?: string;
-	cwd: string;
-	cost: number;
-}
-
-export async function scanSession(filePath: string): Promise<SessionInfo | null> {
-	try {
-		const cutoffTime = Date.now() - LOOKBACK_MS;
-		const rl = createInterface({ input: createReadStream(filePath), crlfDelay: Infinity });
-		let lineNum = 0;
-		let header: any = null;
-		let title = "";
-		let totalCost = 0;
-
-		for await (const line of rl) {
-			lineNum++;
-			if (lineNum === 1) {
-				try {
-					header = JSON.parse(line);
-				} catch { return null; }
-				if (header.timestamp && new Date(header.timestamp).getTime() < cutoffTime) {
-					rl.close();
-					return null;
-				}
-				continue;
-			}
-			try {
-				const entry = JSON.parse(line);
-				if (entry.type === "session_info" && entry.name) {
-					title = entry.name;
-				}
-				if (entry.type === "message" && entry.message?.role === "assistant" && entry.message?.usage?.cost?.total) {
-					totalCost += entry.message.usage.cost.total;
-				}
-			} catch { continue; }
-		}
-
-		if (!header?.timestamp) return null;
-
-		if (!title) {
-			const rl2 = createInterface({ input: createReadStream(filePath), crlfDelay: Infinity });
-			for await (const line of rl2) {
-				try {
-					const entry = JSON.parse(line);
-					if (entry.type === "message" && entry.message?.role === "user") {
-						const content = entry.message.content;
-						if (typeof content === "string") {
-							title = content.slice(0, 80);
-						} else if (Array.isArray(content)) {
-							const textPart = content.find((c: any) => c.type === "text");
-							if (textPart) title = textPart.text.slice(0, 80);
-						}
-						break;
-					}
-				} catch { continue; }
-			}
-		}
-
-		return {
-			file: filePath,
-			timestamp: header.timestamp,
-			title: title || "(untitled)",
-			isChild: !!header.parentSession,
-			parentSession: header.parentSession || undefined,
-			cwd: header.cwd || "",
-			cost: totalCost,
-		};
-	} catch { return null; }
-}
-
-export function isHousekeeping(title: string): boolean {
-	const lower = title.toLowerCase();
-	const patterns = [
-		/^(clear|review|read)\s+(done|scratchpad|today|daily)/,
-		/^-\s+(no done|scratchpad|cleared|reviewed|task is)/,
-		/^scratchpad\s+(content|management|maintenance|reviewed|items)/,
-		/^\(untitled\)$/,
-		/^\/\w+$/,
-		/^write daily log/,
-	];
-	return patterns.some(p => p.test(lower));
+	return sections.join("\n\n---\n\n");
 }
 
 // --- Search ---

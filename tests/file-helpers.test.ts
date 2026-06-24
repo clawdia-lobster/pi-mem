@@ -2,7 +2,7 @@ import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { readFileSafe, ensureDirs, safeResolvePath } from "../lib.ts";
+import { readFileSafe, ensureDirs, safeResolvePath, writeFileAtomic } from "../lib.ts";
 import { makeTempDir, cleanup, makeConfig, writeFile } from "./helpers.ts";
 
 let tmpDir: string;
@@ -61,6 +61,28 @@ describe("ensureDirs", () => {
 		fs.writeFileSync(testFile, "keep me", "utf-8");
 		ensureDirs(config);
 		assert.strictEqual(fs.readFileSync(testFile, "utf-8"), "keep me");
+	});
+});
+
+describe("writeFileAtomic", () => {
+	it("writes file that can be read back", () => {
+		const filePath = path.join(tmpDir, "atomic.md");
+		writeFileAtomic(filePath, "atomic content");
+		assert.strictEqual(fs.readFileSync(filePath, "utf-8"), "atomic content");
+	});
+
+	it("overwrites existing file", () => {
+		const filePath = path.join(tmpDir, "atomic.md");
+		fs.writeFileSync(filePath, "old", "utf-8");
+		writeFileAtomic(filePath, "new");
+		assert.strictEqual(fs.readFileSync(filePath, "utf-8"), "new");
+	});
+
+	it("does not leave temp files behind", () => {
+		const filePath = path.join(tmpDir, "atomic.md");
+		writeFileAtomic(filePath, "content");
+		const files = fs.readdirSync(tmpDir);
+		assert.ok(!files.some(f => f.startsWith(".tmp-")));
 	});
 });
 

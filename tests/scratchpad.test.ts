@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
-import { parseScratchpad, serializeScratchpad, type ScratchpadItem } from "../lib.ts";
+import { parseScratchpad, serializeScratchpad, toggleScratchpadItem, type ScratchpadItem } from "../lib.ts";
 
 describe("parseScratchpad", () => {
 	it("parses open items", () => {
@@ -88,6 +88,37 @@ describe("parseScratchpad", () => {
 		assert.strictEqual(items[2].done, false);
 		assert.strictEqual(items[2].text, "Conditional delivery");
 	});
+
+	it("captures meta comment with one blank line between", () => {
+		const content = "<!-- 2026-02-18 10:00:00 [abc12345] -->\n\n- [ ] Task with meta";
+		const items = parseScratchpad(content);
+		assert.strictEqual(items.length, 1);
+		assert.strictEqual(items[0].meta, "<!-- 2026-02-18 10:00:00 [abc12345] -->");
+	});
+
+	it("captures meta comment with two blank lines between", () => {
+		const content = "<!-- 2026-02-18 10:00:00 [abc12345] -->\n\n\n- [ ] Task with meta";
+		const items = parseScratchpad(content);
+		assert.strictEqual(items.length, 1);
+		assert.strictEqual(items[0].meta, "<!-- 2026-02-18 10:00:00 [abc12345] -->");
+	});
+
+	it("does not capture meta beyond 3 lines back", () => {
+		const content = "<!-- 2026-02-18 10:00:00 [abc12345] -->\n\n\n\n- [ ] Task without meta";
+		const items = parseScratchpad(content);
+		assert.strictEqual(items.length, 1);
+		assert.strictEqual(items[0].meta, "");
+	});
+
+	it("does not associate meta from previous item with next item", () => {
+		const content = `<!-- 2026-02-16 18:16:01 [12950572] -->
+- [ ] First task
+- [ ] Second task`;
+		const items = parseScratchpad(content);
+		assert.strictEqual(items.length, 2);
+		assert.strictEqual(items[0].meta, "<!-- 2026-02-16 18:16:01 [12950572] -->");
+		assert.strictEqual(items[1].meta, "");
+	});
 });
 
 describe("serializeScratchpad", () => {
@@ -139,6 +170,52 @@ describe("serializeScratchpad", () => {
 	it("ends with newline", () => {
 		const result = serializeScratchpad([{ done: false, text: "X", meta: "" }]);
 		assert.ok(result.endsWith("\n"));
+	});
+});
+
+describe("toggleScratchpadItem", () => {
+	it("marks a matching open item as done", () => {
+		const content = "- [ ] Fix bug\n- [ ] Write tests";
+		const updated = toggleScratchpadItem(content, "bug", "done");
+		assert.ok(updated.includes("- [x] Fix bug"));
+		assert.ok(updated.includes("- [ ] Write tests"));
+	});
+
+	it("unchecks a matching done item", () => {
+		const content = "- [x] Fix bug\n- [ ] Write tests";
+		const updated = toggleScratchpadItem(content, "bug", "undo");
+		assert.ok(updated.includes("- [ ] Fix bug"));
+		assert.ok(updated.includes("- [ ] Write tests"));
+	});
+
+	it("throws when no match found", () => {
+		const content = "- [ ] Fix bug";
+		assert.throws(() => toggleScratchpadItem(content, "nonexistent", "done"), /No matching open item found/);
+	});
+
+	it("throws on ambiguous match", () => {
+		const content = "- [ ] Fix git add\n- [ ] Fix git commit";
+		assert.throws(() => toggleScratchpadItem(content, "git", "done"), /Ambiguous match: "git" matches 2 items/);
+	});
+
+	it("does not throw on exact match when substring would be ambiguous", () => {
+		const content = "- [ ] Fix git add\n- [ ] Fix git commit";
+		const updated = toggleScratchpadItem(content, "git add", "done");
+		assert.ok(updated.includes("- [x] Fix git add"));
+		assert.ok(updated.includes("- [ ] Fix git commit"));
+	});
+
+	it("is case-insensitive", () => {
+		const content = "- [ ] Fix BUG";
+		const updated = toggleScratchpadItem(content, "bug", "done");
+		assert.ok(updated.includes("- [x] Fix BUG"));
+	});
+
+	it("only matches items in the target state", () => {
+		const content = "- [x] Fix bug\n- [ ] Fix bug again";
+		const updated = toggleScratchpadItem(content, "bug", "done");
+		assert.ok(updated.includes("- [x] Fix bug"));
+		assert.ok(updated.includes("- [x] Fix bug again"));
 	});
 });
 
