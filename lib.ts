@@ -165,137 +165,9 @@ export function safeResolvePath(memoryDir: string, filename: string): { resolved
 	return { resolved: path.join(memoryDir, normalized), normalized };
 }
 
-export interface IndexEntry {
-	directory: string;
-	filename: string;
-	title: string;
-	line: string;
-}
-
 export interface MemoryReadResult {
 	text: string;
 	details: Record<string, unknown>;
-}
-
-function normalizeLookupText(value: string): string {
-	return value
-		.toLowerCase()
-		.replace(/\.md$/i, "")
-		.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, " ")
-		.replace(/[_-]+/g, " ")
-		.replace(/[^a-z0-9]+/g, " ")
-		.trim()
-		.replace(/\s+/g, " ");
-}
-
-function titleFromIndexLine(line: string): string {
-	const withoutFileComment = line.replace(/<!--\s*file:[^>]+-->/i, "").trim();
-	const parts = withoutFileComment.split(/\s+\u2014\s+/);
-	const titlePart = parts[0] ?? withoutFileComment;
-	return titlePart
-		.replace(/^[\p{Emoji_Presentation}\p{Extended_Pictographic}\s]+/u, "")
-		.replace(/^[^:]{1,32}:\s*/i, "")
-		.trim();
-}
-
-export function parseIndexFile(directory: string, content: string): IndexEntry[] {
-	const entries: IndexEntry[] = [];
-	for (const line of content.split("\n")) {
-		const match = line.match(/<!--\s*file:([^>]+?)\s*-->/i);
-		if (!match) continue;
-		const filename = match[1].trim();
-		if (!filename || filename.includes("/") || filename.includes("..")) continue;
-		entries.push({ directory, filename, title: titleFromIndexLine(line), line: line.trim() });
-	}
-	return entries;
-}
-
-function scoreIndexEntry(entry: IndexEntry, query: string): number {
-	const normalizedQuery = normalizeLookupText(query);
-	if (!normalizedQuery) return 0;
-	const normalizedTitle = normalizeLookupText(entry.title);
-	const normalizedFilename = normalizeLookupText(entry.filename);
-	const normalizedLine = normalizeLookupText(entry.line);
-	const haystack = `${normalizedTitle} ${normalizedFilename} ${normalizedLine}`;
-	if (normalizedTitle === normalizedQuery || normalizedFilename === normalizedQuery) return 100;
-	if (normalizedTitle.includes(normalizedQuery) || normalizedFilename.includes(normalizedQuery)) return 80;
-	const tokens = normalizedQuery.split(" ").filter(Boolean);
-	if (tokens.length === 0) return 0;
-	const hits = tokens.filter(token => haystack.includes(token)).length;
-	if (hits === 0) return 0;
-	return hits / tokens.length;
-}
-
-function formatIndexCandidates(directory: string, entries: IndexEntry[], heading: string): string {
-	const lines = [heading, "", ...entries.map(e => `- ${directory}/${e.filename} — ${e.title || e.filename}`)];
-	return lines.join("\n");
-}
-
-function listSiblingIndexedDirectories(config: MemoryConfig, directory: string): string[] {
-	const parent = path.dirname(directory);
-	try {
-		const parentPath = path.join(config.memoryDir, parent);
-		return fs.readdirSync(parentPath)
-			.map(name => parent === "." ? name : `${parent}/${name}`)
-			.filter(candidate => {
-				try { return fs.statSync(path.join(config.memoryDir, candidate)).isDirectory(); } catch { return false; }
-			})
-			.filter(candidate => readFileSafe(path.join(config.memoryDir, candidate, "INDEX.md")))
-			.sort()
-			.reverse()
-			.slice(0, 10);
-	} catch {
-		return [];
-	}
-}
-
-export function resolveIndexedFile(config: MemoryConfig, directory: string, query: string): MemoryReadResult {
-	const indexPath = path.join(config.memoryDir, directory, "INDEX.md");
-	const indexContent = readFileSafe(indexPath);
-	if (!indexContent) {
-		const alternatives = listSiblingIndexedDirectories(config, directory);
-		const suffix = alternatives.length > 0 ? ` Indexed directories nearby: ${alternatives.map(d => `${d}/`).join(", ")}` : "";
-		return { text: `No INDEX.md for ${directory}.${suffix}`, details: { directory, found: false, reason: "missing_index" } };
-	}
-
-	const entries = parseIndexFile(directory, indexContent);
-	if (entries.length === 0) {
-		return { text: `No indexed entries found in ${directory}/INDEX.md.`, details: { directory, found: false, reason: "empty_index" } };
-	}
-
-	const scored = entries
-		.map(entry => ({ entry, score: scoreIndexEntry(entry, query) }))
-		.filter(item => item.score > 0)
-		.sort((a, b) => b.score - a.score || a.entry.filename.localeCompare(b.entry.filename));
-
-	if (scored.length === 0) {
-		return {
-			text: formatIndexCandidates(directory, entries, `No indexed entry matched "${query}" in ${directory}/INDEX.md. Candidates:`),
-			details: { directory, query, found: false, reason: "no_match", candidates: entries.map(e => e.filename) },
-		};
-	}
-
-	const topScore = scored[0].score;
-	const top = scored.filter(item => item.score === topScore).map(item => item.entry);
-	const queryTokens = normalizeLookupText(query).split(" ").filter(Boolean);
-	if (top.length > 1 || (queryTokens.length === 1 && scored.length > 1 && topScore < 100)) {
-		const candidates = scored.slice(0, 10).map(item => item.entry);
-		return {
-			text: formatIndexCandidates(directory, candidates, `Multiple indexed entries matched "${query}". Use one of these exact paths:`),
-			details: { directory, query, found: false, reason: "ambiguous", candidates: candidates.map(e => e.filename) },
-		};
-	}
-
-	const match = scored[0].entry;
-	const filePath = path.join(config.memoryDir, directory, match.filename);
-	const content = readFileSafe(filePath);
-	if (!content) {
-		return {
-			text: `INDEX.md points to missing file: ${directory}/${match.filename}`,
-			details: { directory, query, found: false, reason: "missing_resolved_file", filename: match.filename, path: filePath },
-		};
-	}
-	return { text: content, details: { path: filePath, filename: `${directory}/${match.filename}`, resolvedFrom: query, title: match.title } };
 }
 
 export function readMemoryFile(config: MemoryConfig, filename: string): MemoryReadResult {
@@ -307,13 +179,6 @@ export function readMemoryFile(config: MemoryConfig, filename: string): MemoryRe
 	if (content) {
 		return { text: content, details: { path: result.resolved, filename: result.normalized } };
 	}
-
-	const directory = path.dirname(result.normalized);
-	const basename = path.basename(result.normalized).replace(/\.md$/i, "");
-	if (directory && directory !== "." && basename !== "INDEX") {
-		return resolveIndexedFile(config, directory, basename);
-	}
-
 	return { text: `File not found: ${result.normalized}`, details: { found: false, reason: "missing_file", filename: result.normalized } };
 }
 

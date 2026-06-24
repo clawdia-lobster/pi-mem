@@ -391,7 +391,7 @@ export default function (pi: ExtensionAPI) {
 			"- 'long_term': Read MEMORY.md",
 			"- 'scratchpad': Read SCRATCHPAD.md",
 			"- 'daily': Read a specific day's log (default: today). Pass date as YYYY-MM-DD.",
-			"- 'file': Read any file by exact path (e.g. 'SOUL.md', 'catchup/2026-04-26/file.md'). Pass filename. If the exact file is missing and the directory has an INDEX.md with <!-- file:... --> entries, I resolve by title/query within that index.",
+			"- 'file': Read any file by exact path (e.g. 'SOUL.md', 'catchup/2026-04-26/file.md'). Pass filename. Use memory_search to find filenames if unsure.",
 			"- 'note': Read a file from notes/ (e.g. 'lessons.md'). Pass filename.",
 			"- 'list': List all files in the memory directory.",
 		].join("\n"),
