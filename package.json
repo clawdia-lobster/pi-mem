@@ -1,6 +1,6 @@
 {
   "name": "@askjo/pi-mem",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Pi coding agent extension for plain-Markdown memory system — long-term memory, daily logs, and scratchpad checklist",
   "main": "index.ts",
   "type": "module",
