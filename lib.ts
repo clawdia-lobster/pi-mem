@@ -290,19 +290,6 @@ export function buildMemorySnapshot(config: MemoryConfig): string {
 		sections.push(`## Daily log: ${yesterday} (yesterday)\n\n${yesterdayContent.trim()}`);
 	}
 
-	const catchupDir = path.join(config.memoryDir, "catchup");
-	for (let i = 0; i < 2; i++) {
-		const date = daysAgoStr(i, config.timezone);
-		const label = i === 0 ? "today" : "yesterday";
-		const indexPath = path.join(catchupDir, date, "INDEX.md");
-		const catchupContent = readFileSafe(indexPath)?.trim();
-		if (catchupContent) {
-			const header = `## Catchup: ${date} (${label})`;
-			const hint = `_Read full details: memory_read(target='file', filename='catchup/${date}/FILENAME.md')_`;
-			sections.push(`${header}\n${hint}\n\n${catchupContent}`);
-		}
-	}
-
 	if (sections.length === 0) {
 		return "";
 	}
