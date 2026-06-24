@@ -344,19 +344,21 @@ export default function (pi: ExtensionAPI) {
 		if (rebuildTimer) { clearInterval(rebuildTimer); rebuildTimer = null; }
 	});
 
-	// Inject memory as a trailing system message (not in the main system prompt).
-	// This keeps the system prompt byte-stable across sessions so that KV prefix
-	// caches (e.g., ds4 disk cache keyed on SHA1 of token prefix) get hits.
-	pi.on("context", async (event) => {
+	// Inject memory into the system prompt once per user prompt, before the
+	// agent loop starts.  Using before_agent_start (instead of the context
+	// event) guarantees the memory is injected exactly once per turn, not
+	// before every LLM call within a turn (which includes tool-result
+	// continuations and causes spurious extra turns / token waste).
+	pi.on("before_agent_start", async (event) => {
 		const memoryContext = buildMemoryContext(config);
 		if (!memoryContext) return;
 
 		const memoryInstructions = [
-			"## Memory",
+			"\n\n## Memory",
 			"The following memory files have been loaded. Use the memory_write tool to persist important information.",
-			"- Decisions, preferences, and durable facts \u2192 MEMORY.md",
-			"- Day-to-day notes and running context \u2192 daily/<YYYY-MM-DD>.md",
-			"- Things to fix later or keep in mind \u2192 scratchpad tool",
+			"- Decisions, preferences, and durable facts → MEMORY.md",
+			"- Day-to-day notes and running context → daily/<YYYY-MM-DD>.md",
+			"- Things to fix later or keep in mind → scratchpad tool",
 			"- Scratchpad is NOT auto-loaded. Use memory_read(target='scratchpad') to fetch it when needed.",
 			'- If someone says "remember this," write it immediately.',
 			"",
@@ -364,26 +366,14 @@ export default function (pi: ExtensionAPI) {
 			"After meaningful interactions, call memory_write(target='daily') with a brief 1-2 sentence summary.",
 			"**Log when:** task completed, decision made, bug fixed, new info discovered, config changed.",
 			"**Skip when:** greetings, goodbyes, chitchat, simple acks, trivial factual questions.",
-			"Log the outcome, not the question (e.g. \"Debugged import error \u2014 missing __init__.py\" not \"User asked about imports\").",
+			"Log the outcome, not the question (e.g. \"Debugged import error — missing __init__.py\" not \"User asked about imports\").",
 			"",
 			memoryContext,
 		].join("\n");
 
-		// pi-coding-agent's convertToLlm() recognises only user / assistant /
-		// toolResult / custom / bashExecution / branchSummary / compactionSummary
-		// roles — a `role: "system"` message is silently dropped before the
-		// LLM ever sees it. Inject the memory block as a `user` message so it
-		// reaches the model. Wrap it in a clear marker so the agent doesn't
-		// confuse it with an actual user turn.
-		const messages = [
-			...event.messages,
-			{
-				role: "user" as const,
-				content: `<pi-mem-injected>\n${memoryInstructions}\n</pi-mem-injected>`,
-				timestamp: Date.now(),
-			},
-		];
-		return { messages };
+		return {
+			systemPrompt: event.systemPrompt + memoryInstructions,
+		};
 	});
 
 	pi.on("session_before_compact", async (_event, ctx) => {
