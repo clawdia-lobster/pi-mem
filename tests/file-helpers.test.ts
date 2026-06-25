@@ -2,7 +2,7 @@ import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { readFileSafe, ensureDirs, safeResolvePath, writeFileAtomic } from "../lib.ts";
+import { readFileSafe, ensureDirs, safeResolvePath, writeFileAtomic, readMemoryFile } from "../lib.ts";
 import { makeTempDir, cleanup, makeConfig, writeFile } from "./helpers.ts";
 
 let tmpDir: string;
@@ -121,5 +121,47 @@ describe("safeResolvePath", () => {
 		const result = safeResolvePath("/mem", "catchup/2026/../2026/file.md");
 		assert.ok(result);
 		assert.strictEqual(result.normalized, "catchup/2026/file.md");
+	});
+});
+
+describe("readMemoryFile", () => {
+	it("reads existing file and returns content with details", () => {
+		const config = makeConfig(tmpDir);
+		ensureDirs(config);
+		fs.writeFileSync(path.join(config.memoryDir, "SOUL.md"), "soul content", "utf-8");
+		const result = readMemoryFile(config, "SOUL.md");
+		assert.strictEqual(result.text, "soul content");
+		assert.strictEqual(result.details.found, undefined);
+		assert.strictEqual(result.details.filename, "SOUL.md");
+		assert.ok(result.details.path?.includes("SOUL.md"));
+	});
+
+	it("returns error text for non-existent file", () => {
+		const config = makeConfig(tmpDir);
+		ensureDirs(config);
+		const result = readMemoryFile(config, "NOPE.md");
+		assert.strictEqual(result.text, "File not found: NOPE.md");
+		assert.strictEqual(result.details.found, false);
+		assert.strictEqual(result.details.reason, "missing_file");
+		assert.strictEqual(result.details.filename, "NOPE.md");
+	});
+
+	it("returns error text for invalid path traversal", () => {
+		const config = makeConfig(tmpDir);
+		const result = readMemoryFile(config, "../etc/passwd");
+		assert.strictEqual(result.text, "Invalid path: ../etc/passwd");
+		assert.strictEqual(result.details.found, false);
+		assert.strictEqual(result.details.reason, "invalid_path");
+	});
+
+	it("reads file in subdirectory", () => {
+		const config = makeConfig(tmpDir);
+		ensureDirs(config);
+		const subdir = path.join(config.memoryDir, "notes");
+		fs.mkdirSync(subdir, { recursive: true });
+		fs.writeFileSync(path.join(subdir, "lessons.md"), "lesson content", "utf-8");
+		const result = readMemoryFile(config, "notes/lessons.md");
+		assert.strictEqual(result.text, "lesson content");
+		assert.strictEqual(result.details.filename, "notes/lessons.md");
 	});
 });

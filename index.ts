@@ -15,7 +15,7 @@
  *   scratchpad    — add/check/uncheck/clear items on the scratchpad checklist
  *
  * Context injection:
- *   - MEMORY.md + SCRATCHPAD.md + today's + yesterday's daily logs injected into every turn
+ *   - MEMORY.md + today's + yesterday's daily logs injected into every turn
  *   - Snapshot captured once at session start, identical on every turn
  *
  * Dashboard widget:
@@ -24,7 +24,7 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { getMarkdownTheme, keyHint } from "@mariozechner/pi-coding-agent";
-import { Container, Markdown, Spacer, Text } from "@mariozechner/pi-tui";
+import { Container, Markdown, Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { StringEnum } from "@mariozechner/pi-ai";
 import * as fs from "node:fs";
@@ -33,10 +33,8 @@ import { execFileSync } from "node:child_process";
 
 import {
 	type MemoryConfig,
-	type ScratchpadItem,
 	buildConfig,
 	todayStr,
-	yesterdayStr,
 	nowTimestamp,
 	shortSessionId,
 	readFileSafe,
