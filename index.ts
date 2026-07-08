@@ -65,9 +65,9 @@ function gitCommit(message: string, filePath?: string) {
 	if (!config.autocommit) return;
 	try {
 		if (filePath) {
-			execFileSync("git", ["add", filePath], { cwd: config.memoryDir, stdio: "ignore", timeout: 5000 });
+			execFileSync("git", ["add", filePath], { cwd: config.memoryDir, stdio: "ignore", timeout: 30000 });
 		}
-		execFileSync("git", ["commit", "-m", message, "--allow-empty-message", "--no-verify"], { cwd: config.memoryDir, stdio: "ignore", timeout: 5000 });
+		execFileSync("git", ["commit", "-m", message, "--allow-empty-message", "--no-verify"], { cwd: config.memoryDir, stdio: "ignore", timeout: 30000 });
 	} catch (e: any) {
 		if (!isExpectedError(e)) console.warn(`git commit failed: ${e.message}`);
 	}
