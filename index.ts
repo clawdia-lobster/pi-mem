@@ -29,11 +29,11 @@ import { Type } from "@sinclair/typebox";
 import { StringEnum } from "@mariozechner/pi-ai";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { execFileSync } from "node:child_process";
 
 import {
 	type MemoryConfig,
 	buildConfig,
+	gitCommit as libGitCommit,
 	todayStr,
 	nowTimestamp,
 	shortSessionId,
@@ -61,16 +61,9 @@ function isExpectedError(error: unknown): boolean {
 	return code === 'ENOENT' || code === 'ENOTDIR';
 }
 
+// Bound wrapper: call sites stay unchanged; implementation lives in lib.ts.
 function gitCommit(message: string, filePath?: string) {
-	if (!config.autocommit) return;
-	try {
-		if (filePath) {
-			execFileSync("git", ["add", filePath], { cwd: config.memoryDir, stdio: "ignore", timeout: 30000 });
-		}
-		execFileSync("git", ["commit", "-m", message, "--allow-empty-message", "--no-verify"], { cwd: config.memoryDir, stdio: "ignore", timeout: 30000 });
-	} catch (e: any) {
-		if (!isExpectedError(e)) console.warn(`git commit failed: ${e.message}`);
-	}
+	libGitCommit(config, message, filePath);
 }
 
 async function showDashboard(ctx: any) {

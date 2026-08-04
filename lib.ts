@@ -5,6 +5,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { execFileSync } from "node:child_process";
 
 // --- Config ---
 
@@ -359,4 +360,62 @@ export function searchMemory(config: MemoryConfig, query: string, maxResults: nu
 	}
 
 	return { fileMatches, lineResults };
+}
+
+// --- Git autocommit ---
+
+const GIT_TIMEOUT_MS = 60_000;
+const GIT_MAX_ATTEMPTS = 3;
+const STALE_LOCK_AGE_SEC = 120;
+
+function sleepSync(ms: number): void {
+	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, ms);
+}
+
+// A killed or timed-out git leaves .git/index.lock behind; every later
+// add/commit then fails fast with "File exists". Remove only locks older
+// than maxAgeSec — a live git holds its lock briefly, a stale one forever.
+function removeStaleIndexLock(memoryDir: string, maxAgeSec: number): void {
+	const lock = path.join(memoryDir, ".git", "index.lock");
+	try {
+		const st = fs.statSync(lock);
+		if ((Date.now() - st.mtimeMs) / 1000 > maxAgeSec) fs.unlinkSync(lock);
+	} catch {
+		// lock absent or unreadable — nothing to do
+	}
+}
+
+/**
+ * Stage filePath (if given) and commit. Robust against slow mounts (NFS over
+ * WAN, where a cold-cache index refresh can exceed 30s) and against concurrent
+ * sessions committing to the same repo:
+ * - 60s per-call timeout with bounded retry + linear backoff
+ * - "nothing to commit" is success: a concurrent session already committed
+ *   our staged file (git commit with no pathspec sweeps the whole index)
+ * - stale index.lock from a timed-out git is cleared before retrying
+ * Failures are surfaced via console.warn after the final attempt, with stderr.
+ */
+export function gitCommit(config: MemoryConfig, message: string, filePath?: string): void {
+	if (!config.autocommit) return;
+	for (let attempt = 1; attempt <= GIT_MAX_ATTEMPTS; attempt++) {
+		try {
+			if (filePath) {
+				execFileSync("git", ["add", filePath], { cwd: config.memoryDir, stdio: "pipe", timeout: GIT_TIMEOUT_MS });
+			}
+			execFileSync("git", ["commit", "-m", message, "--allow-empty-message", "--no-verify"], { cwd: config.memoryDir, stdio: "pipe", timeout: GIT_TIMEOUT_MS });
+			return;
+		} catch (e: any) {
+			if (e?.code === "ENOENT" || e?.code === "ENOTDIR") return;
+			const output: string = `${e?.stdout?.toString?.() ?? ""}\n${e?.stderr?.toString?.() ?? ""}`.trim();
+			if (/nothing to commit/i.test(output)) return;
+			if (/index\.lock/.test(output) && /File exists/i.test(output)) {
+				removeStaleIndexLock(config.memoryDir, STALE_LOCK_AGE_SEC);
+			}
+			if (attempt === GIT_MAX_ATTEMPTS) {
+				console.warn(`git commit failed after ${GIT_MAX_ATTEMPTS} attempts: ${e?.message ?? e}${output ? `\n${output}` : ""}`);
+				return;
+			}
+			sleepSync(1000 * attempt);
+		}
+	}
 }
