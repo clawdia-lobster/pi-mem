@@ -62,7 +62,7 @@ function isExpectedError(error: unknown): boolean {
 }
 
 // Bound wrapper: call sites stay unchanged; implementation lives in lib.ts.
-function gitCommit(message: string, filePath?: string) {
+function gitCommit(message: string, filePath: string) {
 	libGitCommit(config, message, filePath);
 }
 
