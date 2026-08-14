@@ -85,7 +85,7 @@ export function buildConfig(env: Record<string, string | undefined> = process.en
 	};
 }
 
-export function normalizeTimeZone(timeZone: string | undefined): string {
+function normalizeTimeZone(timeZone: string | undefined): string {
 	const candidate = timeZone?.trim() || "UTC";
 	try {
 		new Intl.DateTimeFormat("en-US", { timeZone: candidate }).format(new Date());
@@ -121,7 +121,7 @@ export function yesterdayStr(timeZone = "UTC", now = new Date()): string {
 }
 
 /** Get a date string N days ago from today. */
-export function daysAgoStr(n: number, timeZone = "UTC", now = new Date()): string {
+function daysAgoStr(n: number, timeZone = "UTC", now = new Date()): string {
 	const parts = localDateParts(now, timeZone);
 	const shifted = new Date(Date.UTC(parts.year, parts.month - 1, parts.day - n, 12, 0, 0, 0));
 	return formatDateParts(localDateParts(shifted, timeZone));

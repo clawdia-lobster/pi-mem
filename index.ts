@@ -62,8 +62,21 @@ function isExpectedError(error: unknown): boolean {
 }
 
 // Bound wrapper: call sites stay unchanged; implementation lives in lib.ts.
+// git runs with cwd = memoryDir, so stage paths relative to it.
 function gitCommit(message: string, filePath: string) {
-	libGitCommit(config, message, filePath);
+	libGitCommit(config, message, path.relative(config.memoryDir, filePath));
+}
+
+// Stamp, write (append or overwrite), then autocommit. mode "overwrite"
+// discards existing content; "append" (default) preserves it.
+function persistMemory(filePath: string, content: string, mode: "append" | "overwrite", ts: string, sid: string, commitMessage: string) {
+	const existing = mode === "overwrite" ? "" : (readFileSafe(filePath) ?? "");
+	const separator = existing.trim() ? "\n\n" : "";
+	const stamped = mode === "overwrite"
+		? `<!-- last updated: ${ts} [${sid}] -->\n${content}`
+		: `<!-- ${ts} [${sid}] -->\n${content}`;
+	writeFileAtomic(filePath, existing + separator + stamped);
+	gitCommit(commitMessage, filePath);
 }
 
 async function showDashboard(ctx: any) {
@@ -224,37 +237,18 @@ export default function (pi: ExtensionAPI) {
 				}
 				const safe = path.basename(filename);
 				const filePath = path.join(config.notesDir, safe);
-				const existing = readFileSafe(filePath) ?? "";
-
-				if (mode === "overwrite") {
-					const stamped = `<!-- last updated: ${ts} [${sid}] -->\n${content}`;
-					writeFileAtomic(filePath, stamped);
-					gitCommit(`note: ${safe}`, path.relative(config.memoryDir, filePath));
-					return {
-						content: [{ type: "text", text: `Wrote notes/${safe}` }],
-						details: { path: filePath, target, mode: "overwrite", sessionId: sid, timestamp: ts },
-					};
-				}
-
-				const separator = existing.trim() ? "\n\n" : "";
-				const stamped = `<!-- ${ts} [${sid}] -->\n${content}`;
-				writeFileAtomic(filePath, existing + separator + stamped);
-				gitCommit(`note: ${safe}`, path.relative(config.memoryDir, filePath));
+				const writeMode = mode === "overwrite" ? "overwrite" : "append";
+				persistMemory(filePath, content, writeMode, ts, sid, `note: ${safe}`);
 				return {
-					content: [{ type: "text", text: `Appended to notes/${safe}` }],
-					details: { path: filePath, target, mode: "append", sessionId: sid, timestamp: ts },
+					content: [{ type: "text", text: writeMode === "overwrite" ? `Wrote notes/${safe}` : `Appended to notes/${safe}` }],
+					details: { path: filePath, target, mode: writeMode, sessionId: sid, timestamp: ts },
 				};
 			}
 
 			if (target === "daily") {
 				const date = todayStr(config.timezone);
 				const filePath = dailyPath(config.dailyDir, date);
-				const existing = readFileSafe(filePath) ?? "";
-
-				const separator = existing.trim() ? "\n\n" : "";
-				const stamped = `<!-- ${ts} [${sid}] -->\n${content}`;
-				writeFileAtomic(filePath, existing + separator + stamped);
-				gitCommit(`daily: ${date}`, path.relative(config.memoryDir, filePath));
+				persistMemory(filePath, content, "append", ts, sid, `daily: ${date}`);
 				return {
 					content: [{ type: "text", text: `Appended to daily/${date}.md` }],
 					details: { path: filePath, target, mode: "append", sessionId: sid, timestamp: ts },
@@ -262,25 +256,11 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			// long_term
-			const existing = readFileSafe(config.memoryFile) ?? "";
-
-			if (mode === "overwrite") {
-				const stamped = `<!-- last updated: ${ts} [${sid}] -->\n${content}`;
-				writeFileAtomic(config.memoryFile, stamped);
-				gitCommit("memory: overwrite", path.relative(config.memoryDir, config.memoryFile));
-				return {
-					content: [{ type: "text", text: `Overwrote MEMORY.md` }],
-					details: { path: config.memoryFile, target, mode: "overwrite", sessionId: sid, timestamp: ts },
-				};
-			}
-
-			const separator = existing.trim() ? "\n\n" : "";
-			const stamped = `<!-- ${ts} [${sid}] -->\n${content}`;
-			writeFileAtomic(config.memoryFile, existing + separator + stamped);
-			gitCommit("memory: append", path.relative(config.memoryDir, config.memoryFile));
+			const writeMode = mode === "overwrite" ? "overwrite" : "append";
+			persistMemory(config.memoryFile, content, writeMode, ts, sid, `memory: ${writeMode}`);
 			return {
-				content: [{ type: "text", text: `Appended to MEMORY.md` }],
-				details: { path: config.memoryFile, target, mode: "append", sessionId: sid, timestamp: ts },
+				content: [{ type: "text", text: writeMode === "overwrite" ? `Overwrote MEMORY.md` : `Appended to MEMORY.md` }],
+				details: { path: config.memoryFile, target, mode: writeMode, sessionId: sid, timestamp: ts },
 			};
 		},
 	});
@@ -330,7 +310,7 @@ export default function (pi: ExtensionAPI) {
 				}
 				items.push({ done: false, text, meta: `<!-- ${ts} [${sid}] -->` });
 				writeFileAtomic(config.scratchpadFile, serializeScratchpad(items));
-				gitCommit("scratchpad: add", path.relative(config.memoryDir, config.scratchpadFile));
+				gitCommit("scratchpad: add", config.scratchpadFile);
 				return {
 					content: [{ type: "text", text: `Added: - [ ] ${text}\n\n${serializeScratchpad(items)}` }],
 					details: { action, sessionId: sid, timestamp: ts },
@@ -344,7 +324,7 @@ export default function (pi: ExtensionAPI) {
 				try {
 					const updated = toggleScratchpadItem(existing, text, action);
 					writeFileAtomic(config.scratchpadFile, updated);
-					gitCommit(`scratchpad: ${action}`, path.relative(config.memoryDir, config.scratchpadFile));
+					gitCommit(`scratchpad: ${action}`, config.scratchpadFile);
 					return {
 						content: [{ type: "text", text: `Updated.\n\n${updated}` }],
 						details: { action, sessionId: sid, timestamp: ts },
@@ -362,7 +342,7 @@ export default function (pi: ExtensionAPI) {
 				items = items.filter((i) => !i.done);
 				const removed = before - items.length;
 				writeFileAtomic(config.scratchpadFile, serializeScratchpad(items));
-				gitCommit("scratchpad: clear_done", path.relative(config.memoryDir, config.scratchpadFile));
+				gitCommit("scratchpad: clear_done", config.scratchpadFile);
 				return {
 					content: [{ type: "text", text: `Cleared ${removed} done item(s).\n\n${serializeScratchpad(items)}` }],
 					details: { action, removed },
