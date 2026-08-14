@@ -181,3 +181,81 @@ describe("searchMemory", () => {
 		assert.ok(result.fileMatches.includes("catchup/2026-04-20/INDEX.md"));
 	});
 });
+
+describe("searchMemory multi-word (keyword) queries", () => {
+	it("matches keywords in any order", () => {
+		const config = makeConfig(tmpDir);
+		ensureDirs(config);
+		fs.writeFileSync(config.memoryFile, "The gallery exhibit opened today\nnothing here", "utf-8");
+		const result = searchMemory(config, "exhibit gallery");
+		assert.strictEqual(result.lineResults.length, 1);
+		assert.strictEqual(result.lineResults[0].line, 1);
+	});
+
+	it("matches lines containing only some of the keywords", () => {
+		const config = makeConfig(tmpDir);
+		ensureDirs(config);
+		fs.writeFileSync(config.memoryFile, "the costume gallery opened\ncompletely unrelated", "utf-8");
+		const result = searchMemory(config, "costume textile");
+		assert.strictEqual(result.lineResults.length, 1);
+		assert.strictEqual(result.lineResults[0].line, 1);
+	});
+
+	it("ranks lines matching more keywords first", () => {
+		const config = makeConfig(tmpDir);
+		ensureDirs(config);
+		fs.writeFileSync(config.memoryFile, "gallery only\nboth costume and gallery here\ncostume only", "utf-8");
+		const result = searchMemory(config, "costume gallery");
+		assert.strictEqual(result.lineResults.length, 3);
+		assert.strictEqual(result.lineResults[0].line, 2);
+	});
+
+	it("ranks exact-phrase matches above scattered keyword matches", () => {
+		const config = makeConfig(tmpDir);
+		ensureDirs(config);
+		fs.writeFileSync(config.memoryFile, "costume at the gallery\nwearing a costume gallery badge", "utf-8");
+		const result = searchMemory(config, "costume gallery");
+		assert.strictEqual(result.lineResults.length, 2);
+		assert.strictEqual(result.lineResults[0].line, 2);
+	});
+
+	it("returns empty results when no keyword matches", () => {
+		const config = makeConfig(tmpDir);
+		ensureDirs(config);
+		fs.writeFileSync(config.memoryFile, "nothing relevant here", "utf-8");
+		const result = searchMemory(config, "zzz qqq");
+		assert.strictEqual(result.fileMatches.length, 0);
+		assert.strictEqual(result.lineResults.length, 0);
+	});
+
+	it("respects maxResults after ranking", () => {
+		const config = makeConfig(tmpDir);
+		ensureDirs(config);
+		const strong = Array.from({ length: 10 }, (_, i) => `costume gallery line ${i}`);
+		const weak = Array.from({ length: 10 }, (_, i) => `costume only ${i}`);
+		fs.writeFileSync(config.memoryFile, [...weak, ...strong].join("\n"), "utf-8");
+		const result = searchMemory(config, "costume gallery", 3);
+		assert.strictEqual(result.lineResults.length, 3);
+		for (const r of result.lineResults) {
+			assert.ok(r.text.includes("gallery"));
+		}
+	});
+
+	it("matches filenames only when all keywords match", () => {
+		const config = makeConfig(tmpDir);
+		ensureDirs(config);
+		writeFile(`${config.dailyDir}/2026-02-18.md`, "some content");
+		const allTerms = searchMemory(config, "2026-02-18 daily");
+		assert.ok(allTerms.fileMatches.includes("daily/2026-02-18.md"));
+		const missingTerm = searchMemory(config, "2026-02-18 nonexistentword");
+		assert.strictEqual(missingTerm.fileMatches.length, 0);
+	});
+
+	it("collapses repeated identical keywords to a single term", () => {
+		const config = makeConfig(tmpDir);
+		ensureDirs(config);
+		fs.writeFileSync(config.memoryFile, "suit of armour", "utf-8");
+		const result = searchMemory(config, "suit suit");
+		assert.strictEqual(result.lineResults.length, 1);
+	});
+});

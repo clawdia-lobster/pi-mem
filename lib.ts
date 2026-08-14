@@ -306,19 +306,39 @@ export interface SearchResult {
 }
 
 export function searchMemory(config: MemoryConfig, query: string, maxResults: number = 20): SearchResult {
-	const needle = query.toLowerCase();
+	const phrase = query.toLowerCase();
+	// Multi-word queries are keyword searches: a line matches if it contains
+	// ANY term (case-insensitive substring per term), ranked by distinct-term
+	// count, with exact-phrase matches first. Single-word queries keep plain
+	// substring semantics.
+	const terms = [...new Set(phrase.trim().split(/\s+/).filter(Boolean))];
+	const tokenized = terms.length > 1;
+	const needle = terms.length === 1 ? terms[0] : phrase;
+
 	const fileMatches: string[] = [];
 	const lineResults: { file: string; line: number; text: string }[] = [];
+	const scored: { file: string; line: number; text: string; score: number; seq: number }[] = [];
+	let seq = 0;
 
 	function searchFile(filePath: string, displayName: string) {
-		if (displayName.toLowerCase().includes(needle) && !fileMatches.includes(displayName)) {
+		const name = displayName.toLowerCase();
+		const nameMatch = tokenized ? terms.every(t => name.includes(t)) : name.includes(needle);
+		if (nameMatch && !fileMatches.includes(displayName)) {
 			fileMatches.push(displayName);
 		}
 		const content = readFileSafe(filePath);
 		if (!content) return;
 		const lines = content.split("\n");
-		for (let i = 0; i < lines.length && lineResults.length < maxResults; i++) {
-			if (lines[i].toLowerCase().includes(needle)) {
+		for (let i = 0; i < lines.length; i++) {
+			if (!tokenized && lineResults.length >= maxResults) break;
+			const hay = lines[i].toLowerCase();
+			if (tokenized) {
+				let matches = 0;
+				for (const t of terms) if (hay.includes(t)) matches++;
+				if (matches === 0) continue;
+				const score = hay.includes(phrase) ? terms.length + 1 : matches;
+				scored.push({ file: displayName, line: i + 1, text: lines[i].trimEnd(), score, seq: seq++ });
+			} else if (hay.includes(needle)) {
 				lineResults.push({ file: displayName, line: i + 1, text: lines[i].trimEnd() });
 			}
 		}
@@ -328,7 +348,7 @@ export function searchMemory(config: MemoryConfig, query: string, maxResults: nu
 		try {
 			const files = fs.readdirSync(dir).filter(f => f.endsWith(".md")).sort();
 			for (const f of files) {
-				if (lineResults.length >= maxResults) break;
+				if (!tokenized && lineResults.length >= maxResults) break;
 				searchFile(path.join(dir, f), prefix ? `${prefix}/${f}` : f);
 			}
 		} catch {}
@@ -340,23 +360,32 @@ export function searchMemory(config: MemoryConfig, query: string, maxResults: nu
 
 	// Search extra dirs configured via PI_SEARCH_DIRS
 	for (const dirName of config.searchDirs) {
-		if (lineResults.length >= maxResults) break;
+		if (!tokenized && lineResults.length >= maxResults) break;
 		const dirPath = path.join(config.memoryDir, dirName);
 		try {
 			const entries = fs.readdirSync(dirPath, { withFileTypes: true });
 			// Search .md files directly in the dir
 			const mdFiles = entries.filter(e => e.isFile() && e.name.endsWith(".md"));
 			for (const f of mdFiles) {
-				if (lineResults.length >= maxResults) break;
+				if (!tokenized && lineResults.length >= maxResults) break;
 				searchFile(path.join(dirPath, f.name), `${dirName}/${f.name}`);
 			}
 			// Search one level of subdirectories (e.g. catchup/2026-04-20/*.md)
 			const subDirs = entries.filter(e => e.isDirectory());
 			for (const sub of subDirs) {
-				if (lineResults.length >= maxResults) break;
+				if (!tokenized && lineResults.length >= maxResults) break;
 				searchDir(path.join(dirPath, sub.name), `${dirName}/${sub.name}`);
 			}
 		} catch {}
+	}
+
+	if (tokenized) {
+		// Rank: more distinct matched terms first; exact-phrase matches
+		// (score = terms.length + 1) outrank everything. Stable by scan order.
+		scored.sort((a, b) => b.score - a.score || a.seq - b.seq);
+		for (const r of scored.slice(0, maxResults)) {
+			lineResults.push({ file: r.file, line: r.line, text: r.text });
+		}
 	}
 
 	return { fileMatches, lineResults };

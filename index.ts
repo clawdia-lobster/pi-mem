@@ -471,11 +471,13 @@ export default function (pi: ExtensionAPI) {
 		label: "Memory Search",
 		description: [
 			"Search across all memory files (MEMORY.md, SCRATCHPAD.md, daily logs, notes/, and any other .md files).",
-			"Matches filenames and file contents. Case-insensitive substring search (not keyword/tokenized).",
+			"Matches filenames and file contents. Case-insensitive.",
+			"Multi-word queries are keyword searches: words may appear in any order and partial matches count; results are ranked by number of matched words, with exact-phrase matches first. Single words match as plain substrings.",
+			"Use distinctive keywords or short phrases (e.g. 'costume exhibit'), not long sentences. Try a single word if a long query returns nothing.",
 			"Returns matching files and lines with paths.",
 		].join("\n"),
 		parameters: Type.Object({
-			query: Type.String({ description: "Search query (case-insensitive substring match)" }),
+			query: Type.String({ description: "Search query — keywords (any order) or an exact phrase; case-insensitive" }),
 			max_results: Type.Optional(
 				Type.Number({ description: "Maximum results to return (default: 20)", default: 20 }),
 			),

@@ -37,7 +37,7 @@ Identity and behavioral files (e.g. `SOUL.md`, `AGENTS.md`, `HEARTBEAT.md`) can 
 |------|-------------|
 | `memory_write` | Write to `long_term` (MEMORY.md), `daily` (today's log), or `note` (notes/filename). Supports `append` and `overwrite` modes. |
 | `memory_read` | Read MEMORY.md (`long_term`), SCRATCHPAD.md (`scratchpad`), daily logs (`daily`), notes (`note`), any root file (`file`), or list everything (`list`). |
-| `memory_search` | Search across all files — filenames and content. Case-insensitive keyword search across root, notes/, and daily/. |
+| `memory_search` | Search across all files — filenames and content. Case-insensitive. Multi-word queries are keyword searches (words in any order, ranked by match count, exact phrases first); single words match as substrings. |
 | `scratchpad` | Manage a checklist: `add`, `done`, `undo`, `clear_done`, `list`. |
 
 ## Context Injection
