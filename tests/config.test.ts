@@ -158,14 +158,6 @@ describe("buildConfig", () => {
 		assert.strictEqual(resolveAgentDir({}, "/fallback/home"), "/fallback/home/.pi/agent");
 	});
 
-	it("supports Windows USERPROFILE", () => {
-		assert.strictEqual(resolveHomeDir({ USERPROFILE: "C:\\Users\\test" }, "/fallback"), "C:\\Users\\test");
-	});
-
-	it("supports Windows HOMEDRIVE and HOMEPATH", () => {
-		assert.strictEqual(resolveHomeDir({ HOMEDRIVE: "C:", HOMEPATH: "\\Users\\test" }, "/fallback"), "C:\\Users\\test");
-	});
-
 	it("respects PI_CODING_AGENT_DIR for memory", () => {
 		const env = { HOME: "/home/x", PI_CODING_AGENT_DIR: "/custom/agent" };
 		assert.strictEqual(buildConfig(env).memoryDir, "/custom/agent/memory");

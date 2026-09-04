@@ -63,10 +63,7 @@ export function resolveHomeDir(
 	env: Record<string, string | undefined> = process.env,
 	fallback = os.homedir(),
 ): string {
-	return env.HOME
-		?? env.USERPROFILE
-		?? (env.HOMEDRIVE && env.HOMEPATH ? `${env.HOMEDRIVE}${env.HOMEPATH}` : undefined)
-		?? fallback;
+	return env.HOME ?? fallback;
 }
 
 export function resolveAgentDir(
