@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
 import * as path from "node:path";
-import { buildConfig } from "../lib.ts";
+import { buildConfig, resolveAgentDir, resolveHomeDir } from "../lib.ts";
 import { makeTempDir, cleanup, writeFile } from "./helpers.ts";
 
 describe("buildConfig", () => {
@@ -153,8 +153,21 @@ describe("buildConfig", () => {
 		cleanup(memDir);
 	});
 
-	it("falls back to ~ when HOME is undefined", () => {
-		const config = buildConfig({});
-		assert.strictEqual(config.memoryDir, "~/.pi/agent/memory");
+	it("uses the supplied platform fallback when home variables are absent", () => {
+		assert.strictEqual(resolveHomeDir({}, "/fallback/home"), "/fallback/home");
+		assert.strictEqual(resolveAgentDir({}, "/fallback/home"), "/fallback/home/.pi/agent");
+	});
+
+	it("supports Windows USERPROFILE", () => {
+		assert.strictEqual(resolveHomeDir({ USERPROFILE: "C:\\Users\\test" }, "/fallback"), "C:\\Users\\test");
+	});
+
+	it("supports Windows HOMEDRIVE and HOMEPATH", () => {
+		assert.strictEqual(resolveHomeDir({ HOMEDRIVE: "C:", HOMEPATH: "\\Users\\test" }, "/fallback"), "C:\\Users\\test");
+	});
+
+	it("respects PI_CODING_AGENT_DIR for memory", () => {
+		const env = { HOME: "/home/x", PI_CODING_AGENT_DIR: "/custom/agent" };
+		assert.strictEqual(buildConfig(env).memoryDir, "/custom/agent/memory");
 	});
 });
