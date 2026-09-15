@@ -187,7 +187,7 @@ export default function (pi: ExtensionAPI) {
 			'- If someone says "remember this," write it immediately.',
 			"",
 			"### Daily Log Rule",
-			"After meaningful interactions, call memory_write(target='daily') with a brief 1-2 sentence summary.",
+			"After meaningful interactions, call memory_write(target='daily'). Write the summary and the pointer only: 1-2 sentences, plus a link to the durable record where the details live.",
 			"**Log when:** task completed, decision made, bug fixed, new info discovered, config changed.",
 			"**Skip when:** greetings, goodbyes, chitchat, simple acks, trivial factual questions.",
 			'Log the outcome, not the question (e.g. "Debugged import error — missing __init__.py" not "User asked about imports").',
